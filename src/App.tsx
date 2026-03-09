@@ -11,7 +11,8 @@ import {
   Home,
   Gamepad2,
   BookOpen,
-  Sparkles
+  Sparkles,
+  Headphones
 } from 'lucide-react';
 import { SceneType, Word, UserProgress, GameType } from './types';
 import { WORDS, SCENES } from './constants';
@@ -56,11 +57,17 @@ export default function App() {
 
   const [isRecording, setIsRecording] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
 
   // Save progress
   useEffect(() => {
     localStorage.setItem('kids-english-progress', JSON.stringify(progress));
   }, [progress]);
+
+  // Clear recording when word changes
+  useEffect(() => {
+    setRecordedAudioUrl(null);
+  }, [currentWordIndex, selectedScene]);
 
   const filteredWords = useMemo(() => {
     if (!selectedScene) return [];
@@ -76,25 +83,67 @@ export default function App() {
     window.speechSynthesis.speak(utterance);
   };
 
-  const handleFollowRead = () => {
-    setIsRecording(true);
-    // Simulate recording and feedback
-    setTimeout(() => {
-      setIsRecording(false);
-      const feedbacks = ["Great job! ⭐", "Excellent! 👍", "You're a star! 🎉"];
-      setFeedback(feedbacks[Math.floor(Math.random() * feedbacks.length)]);
-      
-      // Add star if not already learned
-      if (!progress.learnedWords.includes(currentWord.id)) {
-        setProgress(prev => ({
-          ...prev,
-          stars: prev.stars + 1,
-          learnedWords: [...prev.learnedWords, currentWord.id]
-        }));
-      }
+  const handleFollowRead = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        } 
+      });
+      const mediaRecorder = new MediaRecorder(stream);
+      const audioChunks: BlobPart[] = [];
 
-      setTimeout(() => setFeedback(null), 2000);
-    }, 2000);
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setRecordedAudioUrl(audioUrl);
+      };
+
+      setIsRecording(true);
+      setFeedback(null);
+      setRecordedAudioUrl(null);
+
+      mediaRecorder.start();
+
+      // Simulate a 3-second recording period
+      setTimeout(() => {
+        mediaRecorder.stop();
+        setIsRecording(false);
+        // Stop all tracks to release the microphone
+        stream.getTracks().forEach(track => track.stop());
+        
+        const feedbacks = ["Great job! ⭐", "Excellent! 👍", "You're a star! 🎉", "Perfect! 🌈"];
+        setFeedback(feedbacks[Math.floor(Math.random() * feedbacks.length)]);
+        
+        // Add star if not already learned
+        if (!progress.learnedWords.includes(currentWord.id)) {
+          setProgress(prev => ({
+            ...prev,
+            stars: prev.stars + 1,
+            learnedWords: [...prev.learnedWords, currentWord.id]
+          }));
+        }
+
+        setTimeout(() => setFeedback(null), 2500);
+      }, 3000);
+    } catch (err) {
+      console.error("Microphone access denied or error:", err);
+      setFeedback("Microphone error! Please check permissions. 🎙️");
+      setTimeout(() => setFeedback(null), 3000);
+    }
+  };
+
+  const playRecording = () => {
+    if (recordedAudioUrl) {
+      const audio = new Audio(recordedAudioUrl);
+      audio.play();
+    }
   };
 
   const nextWord = () => {
@@ -207,33 +256,57 @@ export default function App() {
             <h2 className="text-6xl font-bold text-slate-800 mb-2 pointer-events-none">{currentWord.english}</h2>
             <p className="text-2xl text-slate-400 font-medium mb-8 pointer-events-none">{currentWord.chinese}</p>
             
-            <div className="flex flex-col gap-4 w-full">
+            <div className="flex flex-row gap-3 w-full">
               <button 
                 onClick={() => speak(currentWord.english)}
-                className="w-full bg-amber-400 text-white py-4 px-6 rounded-2xl cartoon-shadow flex items-center justify-center gap-3 hover:bg-amber-500 transition-colors"
+                className="flex-1 bg-amber-400 text-white py-4 px-2 rounded-2xl cartoon-shadow flex items-center justify-center gap-2 hover:bg-amber-500 transition-colors"
               >
-                <Volume2 className="w-6 h-6" />
-                <span className="font-bold text-lg">Listen</span>
+                <Volume2 className="w-5 h-5" />
+                <span className="font-bold text-base">Listen</span>
               </button>
               <button 
                 onClick={handleFollowRead}
                 disabled={isRecording}
-                className={`w-full ${isRecording ? 'bg-red-400' : 'bg-emerald-400'} text-white py-4 px-6 rounded-2xl cartoon-shadow flex items-center justify-center gap-3 hover:opacity-90 transition-all`}
+                className={`flex-1 relative overflow-hidden ${isRecording ? 'bg-red-500' : 'bg-emerald-400'} text-white py-4 px-2 rounded-2xl cartoon-shadow flex items-center justify-center gap-2 hover:opacity-90 transition-all`}
               >
-                <Mic className={`w-6 h-6 ${isRecording ? 'animate-pulse' : ''}`} />
-                <span className="font-bold text-lg">{isRecording ? 'Recording...' : 'Speak'}</span>
+                {isRecording && (
+                  <motion.div 
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.4, 0.2] }}
+                    transition={{ repeat: Infinity, duration: 1.5 }}
+                    className="absolute inset-0 bg-white rounded-full"
+                  />
+                )}
+                <Mic className={`w-5 h-5 relative z-10 ${isRecording ? 'animate-pulse' : ''}`} />
+                <span className="font-bold text-base relative z-10">{isRecording ? 'Wait' : 'Speak'}</span>
+                
+                {isRecording && (
+                  <div className="flex gap-0.5 ml-1 relative z-10">
+                    {[1, 2, 3].map((i) => (
+                      <motion.div
+                        key={i}
+                        animate={{ height: [4, 10, 4] }}
+                        transition={{ repeat: Infinity, duration: 0.5, delay: i * 0.1 }}
+                        className="w-0.5 bg-white rounded-full"
+                      />
+                    ))}
+                  </div>
+                )}
+              </button>
+
+              <button
+                onClick={playRecording}
+                disabled={!recordedAudioUrl || isRecording}
+                className={`flex-1 py-4 px-2 rounded-2xl border-2 cartoon-shadow flex items-center justify-center gap-2 transition-all ${
+                  recordedAudioUrl && !isRecording
+                    ? 'bg-indigo-100 text-indigo-600 border-indigo-200 hover:bg-indigo-200' 
+                    : 'bg-slate-100 text-slate-400 border-slate-200 opacity-60 cursor-not-allowed'
+                }`}
+              >
+                <Headphones className="w-5 h-5" />
+                <span className="font-bold text-base">Replay</span>
               </button>
             </div>
-
-            {feedback && (
-              <motion.div 
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="mt-8 bg-emerald-100 text-emerald-600 px-8 py-3 rounded-full font-bold text-xl border-2 border-emerald-200"
-              >
-                {feedback}
-              </motion.div>
-            )}
           </motion.div>
         </AnimatePresence>
 
@@ -269,19 +342,6 @@ export default function App() {
 
     return (
       <div className="min-h-screen flex flex-col bg-indigo-50 pb-32 relative overflow-hidden">
-        <AnimatePresence>
-          {feedback && (
-            <motion.div 
-              initial={{ y: -100, opacity: 0 }}
-              animate={{ y: 20, opacity: 1 }}
-              exit={{ y: -100, opacity: 0 }}
-              className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-10 py-4 rounded-full font-bold text-2xl border-2 cartoon-shadow ${feedback.includes('Correct') ? 'bg-emerald-100 text-emerald-600 border-emerald-200' : 'bg-red-100 text-red-600 border-red-200'}`}
-            >
-              {feedback}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         <header className="p-6 flex items-center justify-center relative">
           <h2 className="text-2xl font-bold text-indigo-900">Listen & Pick!</h2>
           <div className="absolute right-6 bg-white px-4 py-2 rounded-full border-2 border-amber-200 flex items-center gap-2">
@@ -370,6 +430,23 @@ export default function App() {
 
   return (
     <div className="min-h-screen font-sans selection:bg-amber-200">
+      <AnimatePresence>
+        {feedback && (
+          <motion.div 
+            initial={{ y: -100, opacity: 0 }}
+            animate={{ y: 20, opacity: 1 }}
+            exit={{ y: -100, opacity: 0 }}
+            className={`fixed top-4 left-1/2 -translate-x-1/2 z-[1000] px-10 py-4 rounded-full font-bold text-2xl border-2 cartoon-shadow ${
+              feedback.includes('Correct') || feedback.includes('job') || feedback.includes('star') || feedback.includes('Excellent') || feedback.includes('Perfect')
+                ? 'bg-emerald-100 text-emerald-600 border-emerald-200' 
+                : 'bg-red-100 text-red-600 border-red-200'
+            }`}
+          >
+            {feedback}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <AnimatePresence mode="wait">
         {view === 'home' && (
           <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
