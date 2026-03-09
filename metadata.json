@@ -1,0 +1,7 @@
+{
+  "name": "Kids English Go",
+  "description": "A fun and interactive English learning app for kids aged 3-8, featuring scene-based word learning, pronunciation practice, and interactive games.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
